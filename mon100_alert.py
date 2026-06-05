@@ -61,7 +61,7 @@ def is_us_market_hours():
     now_et = datetime.now(et)
     t = now_et.time()
     # US market: 9:30 AM - 4:00 PM Eastern (auto-adjusts for DST)
-    return dtime(9, 30) <= t <= dtime(16, 0)
+    return dtime(9, 30) <= t <= dtime(19, 0)
 
 
 def is_weekday():

@@ -61,11 +61,11 @@ def is_us_market_hours():
     now_et = datetime.now(et)
     t = now_et.time()
     # US market: 9:30 AM - 4:00 PM Eastern (auto-adjusts for DST)
-    return dtime(9, 30) <= t <= dtime(20, 0)
+    return dtime(9, 30) <= t <= dtime(16, 0)
 
 
 def is_weekday():
-    return now_ist().weekday() < 6  # Mon=0, Fri=4
+    return now_ist().weekday() < 5  # Mon=0, Fri=4
 
 
 def is_after_india_open():

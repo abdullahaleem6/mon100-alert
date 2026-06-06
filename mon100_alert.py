@@ -73,6 +73,28 @@ def is_after_india_open():
     return dtime(9, 15) <= t <= dtime(9, 45)  # Only check in first 30 min window
 
 
+def get_sleep_seconds(current_ist, has_pending_india_check):
+    """Sleep longer outside the narrow windows where the bot can act."""
+    current_time = current_ist.time()
+
+    if current_ist.weekday() >= 5:
+        return 3600
+
+    if dtime(9, 10) <= current_time <= dtime(9, 45):
+        return CHECK_INTERVAL
+
+    if has_pending_india_check and dtime(8, 45) <= current_time < dtime(9, 10):
+        return 60
+
+    if is_us_market_hours():
+        return CHECK_INTERVAL
+
+    if dtime(16, 0) <= current_time < dtime(18, 45):
+        return 1800
+
+    return 3600
+
+
 def safe_history(ticker, period="1d", interval="5m", retries=3):
     """Fetch ticker history with retry logic for cloud resilience."""
     for attempt in range(retries):
@@ -129,20 +151,22 @@ log.info("System started")
 
 while True:
     try:
+        current_ist = now_ist()
+
         # Skip weekends
-        if not is_weekday():
-            time.sleep(3600)
+        if current_ist.weekday() >= 5:
+            time.sleep(get_sleep_seconds(current_ist, False))
             continue
 
         # ===================== DAILY RESET =====================
         # Reset at 16:00 IST on weekdays only — after India close (15:30) but before US open (~19:00 IST)
         # This preserves alert_sent_today across the overnight boundary so India logic can act on it.
         # Skipping weekend resets ensures Friday US alert persists until Monday India open.
-        today = now_ist().date()
+        today = current_ist.date()
         if (
             last_reset_date != today
-            and now_ist().time() >= dtime(16, 0)
-            and now_ist().weekday() < 5  # Only reset on Mon–Fri
+            and current_ist.time() >= dtime(16, 0)
+            and current_ist.weekday() < 5  # Only reset on Mon–Fri
         ):
             alert_sent_today = False
             definite_buy_sent = False
@@ -206,9 +230,9 @@ while True:
         # Only fire if US session triggered an alert recently (within last 18 hours)
         us_alert_fresh = (
             us_alert_time is not None
-            and (now_ist() - us_alert_time).total_seconds() < 18 * 3600
+            and (current_ist - us_alert_time).total_seconds() < 18 * 3600
         )
-        if is_after_india_open() and alert_sent_today and us_alert_fresh and not definite_buy_sent:
+        if dtime(9, 15) <= current_ist.time() <= dtime(9, 45) and alert_sent_today and us_alert_fresh and not definite_buy_sent:
 
             gap_pct = get_mon100_gap()
 
@@ -226,14 +250,15 @@ while True:
                     # Allow retry until 9:45 in case Yahoo data was delayed
 
         # Stop rechecking after India window closes
-        if alert_sent_today and not definite_buy_sent and now_ist().time() > dtime(9, 45):
+        if alert_sent_today and not definite_buy_sent and current_ist.time() > dtime(9, 45):
             definite_buy_sent = True
             log.info("India window closed, no valid gap found")
 
         # Heartbeat (every cycle) — helps confirm process is alive on Railway
-        log.debug(f"Heartbeat | alert={alert_sent_today} buy={definite_buy_sent} time={now_ist().strftime('%H:%M')}")
+        log.debug(f"Heartbeat | alert={alert_sent_today} buy={definite_buy_sent} time={current_ist.strftime('%H:%M')}")
 
-        time.sleep(CHECK_INTERVAL)
+        pending_india_check = alert_sent_today and us_alert_fresh and not definite_buy_sent
+        time.sleep(get_sleep_seconds(current_ist, pending_india_check))
 
     except Exception as e:
         log.error(f"Error: {e}", exc_info=True)

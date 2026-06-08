@@ -19,13 +19,10 @@ VIX_THRESHOLD = 18.0            # Only buy when VIX > this (filters out noise di
 # ==========================================
 
 # ================= LOGGING ================
-log_dir = Path(__file__).parent / "logs"
-log_dir.mkdir(exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(log_dir / "mon100.log"),
         logging.StreamHandler(),
     ],
 )

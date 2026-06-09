@@ -3,7 +3,7 @@ import requests
 import time
 import logging
 import os
-from datetime import datetime, time as dtime, date
+from datetime import datetime, time as dtime, date, timedelta
 from pathlib import Path
 import pytz
 
@@ -51,6 +51,24 @@ def send_alert(msg):
 
 def now_ist():
     return datetime.now(ist)
+
+
+def next_india_check_date_from_us_alert(us_alert_dt):
+    """Return the India market date when the gap check should run for a US alert timestamp."""
+    if us_alert_dt is None:
+        return None
+
+    check_date = us_alert_dt.date()
+
+    # If the alert came after today's India check window, evaluate on the next day.
+    if us_alert_dt.time() > dtime(9, 45):
+        check_date = check_date + timedelta(days=1)
+
+    # Skip weekends so a Friday-night US alert maps to Monday's India open.
+    while check_date.weekday() >= 5:
+        check_date = check_date + timedelta(days=1)
+
+    return check_date
 
 
 def is_us_market_hours():
@@ -229,7 +247,11 @@ while True:
             us_alert_time is not None
             and (current_ist - us_alert_time).total_seconds() < 18 * 3600
         )
-        if dtime(9, 15) <= current_ist.time() <= dtime(9, 45) and alert_sent_today and us_alert_fresh and not definite_buy_sent:
+        india_check_date = next_india_check_date_from_us_alert(us_alert_time)
+        in_india_window = dtime(9, 15) <= current_ist.time() <= dtime(9, 45)
+        is_india_check_date = india_check_date is not None and current_ist.date() == india_check_date
+
+        if in_india_window and is_india_check_date and alert_sent_today and us_alert_fresh and not definite_buy_sent:
 
             gap_pct = get_mon100_gap()
 
@@ -246,8 +268,16 @@ while True:
                     log.info(f"MON100 gap {gap_pct:.2f}% not enough (need <= {MON100_GAP_BUY}%)")
                     # Allow retry until 9:45 in case Yahoo data was delayed
 
-        # Stop rechecking after India window closes
-        if alert_sent_today and not definite_buy_sent and current_ist.time() > dtime(9, 45):
+        # Stop rechecking only after the *correct* India window closes.
+        # Guarding on is_india_check_date prevents the overnight hours right after a
+        # US alert (when time-of-day is already > 9:45) from prematurely killing the check.
+        if (
+            alert_sent_today
+            and us_alert_fresh
+            and is_india_check_date
+            and not definite_buy_sent
+            and current_ist.time() > dtime(9, 45)
+        ):
             definite_buy_sent = True
             log.info("India window closed, no valid gap found")
 
